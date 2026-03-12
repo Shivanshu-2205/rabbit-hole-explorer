@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Search, Compass, History, Trash2, Settings, Sparkles } from 'lucide-react';
+import { Search, History, Trash2, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const SUGGESTIONS = [
   'Aurora Borealis', 'Artificial Intelligence', 'Quantum Computing',
@@ -15,9 +15,9 @@ const NAV_ITEMS = [
   { icon: '⚙', label: 'Settings', active: false },
 ];
 
-export default function Sidebar({ onSearch, isLoading, history, onClearHistory }) {
+export default function Sidebar({ onSearch, isLoading, history, onClearHistory, isOpen, onToggle }) {
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const inputRef = useRef(null);
 
   const submit = (v) => {
@@ -25,7 +25,7 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
     if (!val || isLoading) return;
     setQ(val);
     onSearch(val);
-    setOpen(false);
+    setDropdownOpen(false);
     inputRef.current?.blur();
   };
 
@@ -34,14 +34,29 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
     : SUGGESTIONS;
 
   return (
-    <div className="relative flex shrink-0 h-full" style={{ width: 260 }}>
-      {/* Narrow icon rail */}
-      <div className="flex flex-col items-center py-6 gap-6 shrink-0" style={{ 
-        width: 64,
-        background: 'rgba(5, 15, 30, 0.85)',
-        backdropFilter: 'blur(30px)',
-        borderRight: '1px solid rgba(255,255,255,0.07)',
-      }}>
+    // Absolutely positioned — floats OVER the graph, never pushes it
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        height: '100%',
+        zIndex: 30,
+        display: 'flex',
+        pointerEvents: 'none', // let clicks fall through to graph by default
+      }}
+    >
+      {/* Icon rail — always visible, always interactive */}
+      <div
+        className="flex flex-col items-center py-6 gap-6 shrink-0"
+        style={{
+          width: 56,
+          background: 'rgba(5, 15, 30, 0.82)',
+          backdropFilter: 'blur(30px)',
+          borderRight: '1px solid rgba(255,255,255,0.07)',
+          pointerEvents: 'auto',
+        }}
+      >
         {/* Logo */}
         <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-2" style={{
           background: 'linear-gradient(135deg, rgba(77,255,195,0.2), rgba(56,189,248,0.1))',
@@ -54,32 +69,74 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
         {/* Nav icons */}
         {NAV_ITEMS.map((item, i) => (
           <button key={i} title={item.label}
-            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 group"
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200"
             style={{
               background: item.active ? 'rgba(77,255,195,0.12)' : 'transparent',
               border: item.active ? '1px solid rgba(77,255,195,0.2)' : '1px solid transparent',
               color: item.active ? '#4dffc3' : 'rgba(200,220,255,0.3)',
               fontSize: 16,
             }}
-            onMouseEnter={e => { if (!item.active) { e.currentTarget.style.color = 'rgba(200,220,255,0.7)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}}
-            onMouseLeave={e => { if (!item.active) { e.currentTarget.style.color = 'rgba(200,220,255,0.3)'; e.currentTarget.style.background = 'transparent'; }}}
+            onMouseEnter={e => { if (!item.active) { e.currentTarget.style.color = 'rgba(200,220,255,0.7)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; } }}
+            onMouseLeave={e => { if (!item.active) { e.currentTarget.style.color = 'rgba(200,220,255,0.3)'; e.currentTarget.style.background = 'transparent'; } }}
           >
             {item.icon}
           </button>
         ))}
+
+        {/* Toggle button pinned to bottom */}
+        <div className="mt-auto">
+          <button
+            onClick={onToggle}
+            title={isOpen ? 'Close sidebar' : 'Open sidebar'}
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200"
+            style={{
+              background: 'rgba(77,255,195,0.06)',
+              border: '1px solid rgba(77,255,195,0.15)',
+              color: 'rgba(77,255,195,0.5)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(77,255,195,0.15)';
+              e.currentTarget.style.color = '#4dffc3';
+              e.currentTarget.style.borderColor = 'rgba(77,255,195,0.4)';
+              e.currentTarget.style.boxShadow = '0 0 16px rgba(77,255,195,0.15)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(77,255,195,0.06)';
+              e.currentTarget.style.color = 'rgba(77,255,195,0.5)';
+              e.currentTarget.style.borderColor = 'rgba(77,255,195,0.15)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            {isOpen
+              ? <ChevronLeft style={{ width: 15, height: 15 }} />
+              : <ChevronRight style={{ width: 15, height: 15 }} />
+            }
+          </button>
+        </div>
       </div>
 
-      {/* Main panel */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden" style={{
-        background: 'rgba(6, 16, 32, 0.70)',
-        backdropFilter: 'blur(40px)',
-        borderRight: '1px solid rgba(255,255,255,0.08)',
-      }}>
+      {/* Expandable panel — slides in/out, overlays graph */}
+      <div
+        style={{
+          width: 210,
+          transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
+          opacity: isOpen ? 1 : 0,
+          transition: 'transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.4s ease',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          background: 'rgba(6, 16, 32, 0.82)',
+          backdropFilter: 'blur(40px)',
+          borderRight: '1px solid rgba(255,255,255,0.08)',
+          pointerEvents: isOpen ? 'auto' : 'none',
+          overflow: 'hidden',
+        }}
+      >
         {/* Header */}
         <div className="px-4 pt-6 pb-4">
           <div className="flex items-center gap-2 mb-5">
             <Sparkles className="w-4 h-4" style={{ color: '#4dffc3' }} />
-            <h1 className="text-sm font-semibold tracking-wide" style={{
+            <h1 className="text-sm font-semibold tracking-wide whitespace-nowrap" style={{
               background: 'linear-gradient(90deg, #4dffc3, #38bdf8)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
@@ -92,16 +149,16 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
           <div className="relative">
             <div className="flex items-start rounded-xl transition-all duration-300" style={{
               background: 'rgba(255,255,255,0.05)',
-              border: open ? '1px solid rgba(77,255,195,0.4)' : '1px solid rgba(255,255,255,0.08)',
-              boxShadow: open ? '0 0 20px rgba(77,255,195,0.08)' : 'none',
+              border: dropdownOpen ? '1px solid rgba(77,255,195,0.4)' : '1px solid rgba(255,255,255,0.08)',
+              boxShadow: dropdownOpen ? '0 0 20px rgba(77,255,195,0.08)' : 'none',
             }}>
               <div className="pl-3 pr-2 pt-3 shrink-0">
                 {isLoading ? (
-                  <div className="flex gap-0.5 items-center">
-                    {[0,1,2].map(i => (
+                  <div className="flex gap-0.5 items-center pt-0.5">
+                    {[0, 1, 2].map(i => (
                       <span key={i} className="w-1 h-1 rounded-full" style={{
                         background: '#4dffc3',
-                        animation: `pulse 1.2s ${i*0.2}s ease-in-out infinite`,
+                        animation: `pulse 1.2s ${i * 0.2}s ease-in-out infinite`,
                       }} />
                     ))}
                   </div>
@@ -113,12 +170,12 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
                 ref={inputRef}
                 value={q}
                 rows={2}
-                onChange={e => { setQ(e.target.value); setOpen(true); }}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 150)}
+                onChange={e => { setQ(e.target.value); setDropdownOpen(true); }}
+                onFocus={() => setDropdownOpen(true)}
+                onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
                 onKeyDown={e => {
                   if (e.key === 'Enter') { e.preventDefault(); submit(); }
-                  if (e.key === 'Escape') { setOpen(false); inputRef.current.blur(); }
+                  if (e.key === 'Escape') { setDropdownOpen(false); inputRef.current.blur(); }
                 }}
                 placeholder="Search topics..."
                 disabled={isLoading}
@@ -145,7 +202,7 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
               )}
             </div>
 
-            {open && filtered.length > 0 && (
+            {dropdownOpen && filtered.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1.5 rounded-xl overflow-hidden z-50 py-1.5" style={{
                 background: 'rgba(5, 15, 30, 0.97)',
                 backdropFilter: 'blur(40px)',
@@ -206,8 +263,8 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
                     background: i === 0 ? 'rgba(77,255,195,0.08)' : 'rgba(255,255,255,0.03)',
                     border: i === 0 ? '1px solid rgba(77,255,195,0.15)' : '1px solid rgba(255,255,255,0.05)',
                   }}
-                  onMouseEnter={e => { if (i !== 0) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}}
-                  onMouseLeave={e => { if (i !== 0) { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}}
+                  onMouseEnter={e => { if (i !== 0) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; } }}
+                  onMouseLeave={e => { if (i !== 0) { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; } }}
                 >
                   <span style={{ fontSize: 14 }}>{item.icon || '🔵'}</span>
                   <div className="flex-1 min-w-0">
@@ -227,6 +284,8 @@ export default function Sidebar({ onSearch, isLoading, history, onClearHistory }
           )}
         </div>
       </div>
+
+      <style>{`@keyframes pulse{0%,80%,100%{transform:scale(0);opacity:0}40%{transform:scale(1);opacity:1}}`}</style>
     </div>
   );
 }

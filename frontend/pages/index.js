@@ -46,7 +46,8 @@ function EmptyState({ onSearch }) {
         ))}
       </div>
 
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12, letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif',
+      <h1 style={{
+        fontSize: 24, fontWeight: 700, marginBottom: 12, letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif',
         background: 'linear-gradient(135deg, #4dffc3, #38bdf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
       }}>
         Knowledge Universe
@@ -81,7 +82,7 @@ function BackButton({ history, onBack }) {
   return (
     <button onClick={onBack}
       style={{
-        position: 'absolute', top: 14, left: 14, zIndex: 20,
+        position: 'absolute', top: 14, left: 70, zIndex: 20,
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '8px 14px 8px 10px', borderRadius: 12,
         background: 'rgba(5,15,30,0.88)', backdropFilter: 'blur(20px)',
@@ -126,16 +127,17 @@ function BreadcrumbPath({ path }) {
 }
 
 export default function Home() {
-  const [graph, setGraph]       = useState({ nodes: [], edges: [] });
-  const [selectedNode, setSel]  = useState(null);
-  const [path, setPath]         = useState([]);
-  const [navHistory, setHistory]= useState([]);
-  const [activeParent, setParent]= useState(null);
-  const [loading, setLoading]   = useState(false);
-  const [expanding, setExpanding]= useState(false);
-  const [error, setError]       = useState(null);
-  const [panelOpen, setPanel]   = useState(false);
-  const [hoveredNode, setHov]   = useState(null);
+  const [graph, setGraph] = useState({ nodes: [], edges: [] });
+  const [selectedNode, setSel] = useState(null);
+  const [path, setPath] = useState([]);
+  const [navHistory, setHistory] = useState([]);
+  const [activeParent, setParent] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+  const [error, setError] = useState(null);
+  const [panelOpen, setPanel] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [hoveredNode, setHov] = useState(null);
   const [tooltipPos, setTipPos] = useState({ x: 0, y: 0 });
   const expanded = useRef(new Set());
   const pathNodeIds = path.map(p => p.id);
@@ -201,16 +203,18 @@ export default function Home() {
       <AuroraBackground />
 
       {/* App layout */}
-      <div className="relative z-10 flex h-screen w-screen overflow-hidden">
+      <div className="relative z-10 h-screen w-screen overflow-hidden">
         <Sidebar
           onSearch={handleSearch}
           isLoading={loading}
           history={navHistory}
           onClearHistory={() => { setHistory([]); setSel(null); setPanel(false); setGraph({ nodes: [], edges: [] }); setPath([]); }}
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(v => !v)}
         />
 
-        {/* Main area */}
-        <div className="flex-1 flex flex-col min-w-0 p-4 pl-3 gap-3">
+        {/* Main area — always full width, sidebar floats over it */}
+        <div className="flex flex-col w-full h-full p-4 gap-3">
           {/* Status bar */}
           {(expanding || error) && (
             <div className="shrink-0 px-4 py-2 rounded-xl text-xs font-mono flex items-center gap-2" style={{
@@ -219,7 +223,7 @@ export default function Home() {
               color: error ? 'rgba(248,113,113,0.7)' : 'rgba(77,255,195,0.6)',
               backdropFilter: 'blur(20px)',
             }}>
-              {expanding && <span className="flex gap-1">{[0,1,2].map(i => <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: '#4dffc3', animation: `pulse 1.2s ${i*0.2}s ease-in-out infinite` }} />)}</span>}
+              {expanding && <span className="flex gap-1">{[0, 1, 2].map(i => <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: '#4dffc3', animation: `pulse 1.2s ${i * 0.2}s ease-in-out infinite` }} />)}</span>}
               {expanding ? 'Fetching connected topics from Wikipedia…' : `⚠ ${error}`}
             </div>
           )}
@@ -252,7 +256,7 @@ export default function Home() {
             {/* Stats badge */}
             {hasGraph && (
               <div style={{
-                position: 'absolute', bottom: 14, left: 14, display: 'flex', gap: 14,
+                position: 'absolute', bottom: 14, left: 70, display: 'flex', gap: 14,
                 padding: '8px 16px', borderRadius: 12,
                 background: 'rgba(3,8,15,0.80)', backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255,255,255,0.07)',
@@ -293,7 +297,7 @@ export default function Home() {
 
           {/* Breadcrumb */}
           {path.length > 0 && (
-            <div className="shrink-0">
+            <div className="shrink-0" style={{ paddingLeft: 70 }}>
               <BreadcrumbPath path={path} />
             </div>
           )}

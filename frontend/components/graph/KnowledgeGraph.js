@@ -3,9 +3,9 @@ import { useEffect, useRef, useCallback } from 'react';
 // ─── colour helpers ────────────────────────────────────────────────────────
 function hexRgb(hex = '#4af') {
   const h = hex.replace('#', '').padEnd(6, '0');
-  return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+  return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
 }
-function rgba(hex, a) { const {r,g,b}=hexRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+function rgba(hex, a) { const { r, g, b } = hexRgb(hex); return `rgba(${r},${g},${b},${a})`; }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpPos(a, b, t) { return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }; }
 
@@ -49,7 +49,7 @@ export default function KnowledgeGraph({
 }) {
   const cvs = useRef(null);
   const raf = useRef(null);
-  const st  = useRef({
+  const st = useRef({
     // pan/zoom
     ox: 0, oy: 0, scale: 1,
     targetOx: 0, targetOy: 0, targetScale: 1,
@@ -75,8 +75,8 @@ export default function KnowledgeGraph({
     nodes.forEach(n => data[n.id] = n);
 
     const center = nodes.find(n => n.id === parentId)
-                || nodes.find(n => n.depth === 0)
-                || nodes[0];
+      || nodes.find(n => n.depth === 0)
+      || nodes[0];
     if (!center) return;
 
     // centre node always at 0,0
@@ -190,8 +190,8 @@ export default function KnowledgeGraph({
     // nebula glow blobs (static decoration)
     [
       { x: -300, y: -200, r: 350, c: '30,40,120' },
-      { x: 400,  y: 200,  r: 280, c: '60,20,100' },
-      { x: 100,  y: 300,  r: 220, c: '20,70,80'  },
+      { x: 400, y: 200, r: 280, c: '60,20,100' },
+      { x: 100, y: 300, r: 220, c: '20,70,80' },
     ].forEach(blob => {
       const bx = (blob.x + s.ox) * s.scale + W / 2;
       const by = (blob.y + s.oy) * s.scale + H / 2;
@@ -284,10 +284,10 @@ export default function KnowledgeGraph({
       const { x, y } = toS(wp.x, wp.y);
 
       const isRoot = node.id === activeParentId;
-      const isSel  = node.id === selectedNodeId;
-      const isHov  = s.hov === node.id;
+      const isSel = node.id === selectedNodeId;
+      const isHov = s.hov === node.id;
       const isPath = pathNodeIds.includes(node.id);
-      const col    = node.color || '#4af';
+      const col = node.color || '#4af';
 
       // scale-in animation for newly spawned nodes
       const spawnAge = s.spawnTime[node.id] !== undefined ? tick - s.spawnTime[node.id] : 999;
@@ -338,9 +338,9 @@ export default function KnowledgeGraph({
       const bodyGrad = ctx.createRadialGradient(
         x - baseR * 0.3, y - baseR * 0.35, 0, x, y, baseR
       );
-      bodyGrad.addColorStop(0, `rgba(${Math.min(r+70,255)},${Math.min(g+70,255)},${Math.min(b+80,255)},0.95)`);
+      bodyGrad.addColorStop(0, `rgba(${Math.min(r + 70, 255)},${Math.min(g + 70, 255)},${Math.min(b + 80, 255)},0.95)`);
       bodyGrad.addColorStop(0.55, `rgba(${r},${g},${b},0.85)`);
-      bodyGrad.addColorStop(1,   `rgba(${Math.max(r-40,0)},${Math.max(g-40,0)},${Math.max(b-40,0)},0.9)`);
+      bodyGrad.addColorStop(1, `rgba(${Math.max(r - 40, 0)},${Math.max(g - 40, 0)},${Math.max(b - 40, 0)},0.9)`);
       ctx.beginPath(); ctx.arc(x, y, baseR, 0, Math.PI * 2);
       ctx.fillStyle = bodyGrad; ctx.fill();
 
@@ -382,8 +382,8 @@ export default function KnowledgeGraph({
 
       ctx.fillStyle = isRoot ? '#e8f4ff'
         : isPath ? '#78d2ff'
-        : isSel || isHov ? '#c8d8f0'
-        : '#7a88a0';
+          : isSel || isHov ? '#c8d8f0'
+            : '#7a88a0';
       ctx.fillText(name, x, ny);
 
       // ── keywords / tags (below name, only for root + nearby nodes) ──
@@ -485,7 +485,7 @@ export default function KnowledgeGraph({
     // zoom towards cursor
     const c = cvs.current, rect = c.getBoundingClientRect();
     const mx = e.clientX - rect.left - c.width / 2;
-    const my = e.clientY - rect.top  - c.height / 2;
+    const my = e.clientY - rect.top - c.height / 2;
     const newScale = Math.max(0.15, Math.min(5, s.targetScale * f));
     s.targetOx = s.targetOx - mx / s.targetScale + mx / newScale;
     s.targetOy = s.targetOy - my / s.targetScale + my / newScale;
