@@ -8,9 +8,9 @@ const CAT_NEON = {
 };
 
 export default function ActiveNodeCard({ nodeData }) {
-  const [full, setFull]     = useState(null);
-  const [visible, setVis]   = useState(false);
-  const [expanded, setExp]  = useState(false);
+  const [full, setFull]    = useState(null);
+  const [visible, setVis]  = useState(false);
+  const [expanded, setExp] = useState(false);
   const prevId = useRef(null);
 
   useEffect(() => {
@@ -24,10 +24,11 @@ export default function ActiveNodeCard({ nodeData }) {
   }, [nodeData?.id]);
 
   if (!nodeData) return null;
-  const col = nodeData.color || CAT_NEON[nodeData.category] || '#00f5ff';
-  const topic = full || nodeData;
-  const ytQuery = encodeURIComponent(nodeData.name + ' explained');
-  const wikiUrl = topic.wikiUrl || `https://en.wikipedia.org/wiki/${encodeURIComponent(nodeData.name.replace(/ /g,'_'))}`;
+  const col    = nodeData.color || CAT_NEON[nodeData.category] || '#00f5ff';
+  const topic  = full || nodeData;
+  const ytQuery  = encodeURIComponent(nodeData.name + ' explained');
+  const wikiUrl  = topic.wikiUrl || `https://en.wikipedia.org/wiki/${encodeURIComponent(nodeData.name.replace(/ /g, '_'))}`;
+  const text     = topic.fullDescription || topic.description || 'Loading…';
 
   return (
     <div style={{
@@ -35,12 +36,14 @@ export default function ActiveNodeCard({ nodeData }) {
       transform: visible ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(24px)',
       opacity: visible ? 1 : 0,
       transition: 'transform 0.4s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease',
-      width: 580, maxWidth: 'calc(100vw - 40px)',
+      // wider when expanded so text is comfortable to read
+      width: expanded ? 720 : 580,
+      maxWidth: 'calc(100vw - 40px)',
       zIndex: 20, pointerEvents: 'auto',
+      transition: 'transform 0.4s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease, width 0.3s ease',
     }}>
-      {/* glassmorphic card */}
       <div style={{
-        background: 'rgba(8,9,16,0.92)',
+        background: 'rgba(8,9,16,0.94)',
         border: `1px solid ${col}40`,
         borderTop: `2px solid ${col}`,
         borderRadius: 16,
@@ -48,17 +51,16 @@ export default function ActiveNodeCard({ nodeData }) {
         boxShadow: `0 0 60px ${col}18, 0 20px 60px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.3)`,
         overflow: 'hidden',
       }}>
-        {/* top glow bar */}
+        {/* top glow */}
         <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${col}60, transparent)` }} />
 
         <div style={{ display: 'flex', gap: 0 }}>
           {/* thumbnail */}
           {topic.thumbnail && (
-            <div style={{ width: 100, flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ width: expanded ? 140 : 100, flexShrink: 0, overflow: 'hidden', position: 'relative', transition: 'width 0.3s ease' }}>
               <img src={topic.thumbnail} alt={topic.name}
                 style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.55) saturate(0.7)' }} />
               <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(90deg, transparent, rgba(8,9,16,0.6))` }} />
-              {/* category dot */}
               <div style={{
                 position: 'absolute', top: 10, left: 10,
                 width: 8, height: 8, borderRadius: '50%',
@@ -69,14 +71,14 @@ export default function ActiveNodeCard({ nodeData }) {
           )}
 
           {/* content */}
-          <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>
+          <div style={{ flex: 1, padding: '14px 18px', minWidth: 0 }}>
             {/* header row */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
               <div>
                 <div style={{ fontSize: 9, color: col, textTransform: 'uppercase', letterSpacing: '0.16em', fontFamily: "'Space Mono',monospace", marginBottom: 4, opacity: 0.8 }}>
                   {nodeData.category || 'topic'} · active node
                 </div>
-                <h3 style={{ fontSize: 15, fontWeight: 800, color: '#e8f0ff', fontFamily: "'Syne',sans-serif", lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: '#e8f0ff', fontFamily: "'Syne',sans-serif", lineHeight: 1.2, letterSpacing: '-0.01em' }}>
                   {nodeData.name}
                 </h3>
               </div>
@@ -117,39 +119,75 @@ export default function ActiveNodeCard({ nodeData }) {
                   </svg>
                   YouTube
                 </a>
+
+                {/* expand/collapse toggle button */}
+                <button
+                  onClick={() => setExp(x => !x)}
+                  title={expanded ? 'Collapse' : 'Expand'}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                    background: expanded ? `${col}20` : 'rgba(255,255,255,0.04)',
+                    border: expanded ? `1px solid ${col}50` : '1px solid rgba(255,255,255,0.08)',
+                    color: expanded ? col : '#4a5880',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = `${col}20`; e.currentTarget.style.color = col; e.currentTarget.style.borderColor = `${col}50`; }}
+                  onMouseLeave={e => {
+                    if (!expanded) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                      e.currentTarget.style.color = '#4a5880';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                    }
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {expanded
+                      ? <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/>
+                      : <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                    }
+                  </svg>
+                </button>
               </div>
             </div>
 
-            {/* description */}
+            {/* description — bigger font, more lines visible */}
             <p style={{
-              fontSize: 11, color: '#6070a0', lineHeight: 1.7,
+              fontSize: expanded ? 13 : 12,
+              color: expanded ? '#8090b8' : '#6070a0',
+              lineHeight: expanded ? 1.85 : 1.7,
               fontFamily: "'Outfit',sans-serif",
               overflow: 'hidden',
-              display: '-webkit-box', WebkitLineClamp: expanded ? 'unset' : 2,
+              display: '-webkit-box',
+              WebkitLineClamp: expanded ? 'unset' : 3,
               WebkitBoxOrient: 'vertical',
               transition: 'all 0.3s',
-              marginBottom: 6,
+              marginBottom: expanded ? 12 : 6,
+              maxHeight: expanded ? 400 : 'none',
+              overflowY: expanded ? 'auto' : 'hidden',
             }}>
-              {topic.fullDescription || topic.description || 'Loading…'}
+              {text}
             </p>
 
-            {/* expand toggle */}
-            <button onClick={() => setExp(x => !x)}
-              style={{
-                background: 'none', border: 'none', color: `${col}80`,
-                fontSize: 9, fontFamily: "'Space Mono',monospace",
-                cursor: 'pointer', padding: 0, letterSpacing: '0.1em',
-                textTransform: 'uppercase', transition: 'color 0.15s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.color = col}
-              onMouseLeave={e => e.currentTarget.style.color = `${col}80`}
-            >
-              {expanded ? '▲ show less' : '▼ read more'}
-            </button>
+            {/* read more / show less inline link — only shown when not expanded */}
+            {!expanded && text.length > 180 && (
+              <button onClick={() => setExp(true)}
+                style={{
+                  background: 'none', border: 'none', color: `${col}80`,
+                  fontSize: 9, fontFamily: "'Space Mono',monospace",
+                  cursor: 'pointer', padding: 0, letterSpacing: '0.1em',
+                  textTransform: 'uppercase', transition: 'color 0.15s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = col}
+                onMouseLeave={e => e.currentTarget.style.color = `${col}80`}
+              >
+                ▼ read more
+              </button>
+            )}
           </div>
         </div>
 
-        {/* bottom glow bar */}
+        {/* bottom glow */}
         <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${col}30, transparent)` }} />
       </div>
     </div>

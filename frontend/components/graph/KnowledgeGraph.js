@@ -9,45 +9,119 @@ function rgba(hex, a) { const { r, g, b } = hexRgb(hex); return `rgba(${r},${g},
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpPos(a, b, t) { return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }; }
 
-// ─── ring layout ───────────────────────────────────────────────────────────
-function ringLayout(n, radius, cx = 0, cy = 0) {
-  if (!n) return [];
-  if (n === 1) return [{ x: cx, y: cy - radius }];
-  return Array.from({ length: n }, (_, i) => {
-    const a = (2 * Math.PI * i / n) - Math.PI / 2;
-    return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) };
-  });
-}
-
 const CAT_NEON = {
   science: '#00f5ff', technology: '#bf5fff', history: '#ffb700',
   philosophy: '#ff2d78', arts: '#ff6b2b', nature: '#39ff8f',
   society: '#ffb700', mathematics: '#00f5ff', other: '#bf5fff',
 };
 
-// ─── layer isolation ───────────────────────────────────────────────────────
-// Only the active parent + its direct children are visible at any time.
-// All nodes from previous layers are excluded — zero overlap.
-function getVisibleLayer(nodes, edges, activeParentId) {
-  if (!nodes.length) return { visibleNodes: [], visibleEdges: [] };
+// ─── ring layout ───────────────────────────────────────────────────────────
+// Places n nodes evenly on a ring, starting from the top.
+// Optionally restricts to an arc (fromAngle..toAngle in radians).
+function ringLayout(n, radius, cx = 0, cy = 0, fromAngle = null, toAngle = null) {
+  if (!n) return [];
+  if (n === 1 && fromAngle === null) return [{ x: cx, y: cy - radius }];
 
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const centreId = activeParentId
-    || (nodes.find(n => n.depth === 0) || nodes[0])?.id;
-
-  if (!centreId || !nodeMap.has(centreId)) {
-    return { visibleNodes: nodes, visibleEdges: edges };
+  if (fromAngle !== null && toAngle !== null) {
+    // arc layout — spread nodes within the given angular range
+    return Array.from({ length: n }, (_, i) => {
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const a = fromAngle + t * (toAngle - fromAngle);
+      return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) };
+    });
   }
 
-  // direct children of the centre
-  const childEdges = edges.filter(e => e.source === centreId);
-  const childIds   = new Set(childEdges.map(e => e.target).filter(id => nodeMap.has(id)));
+  return Array.from({ length: n }, (_, i) => {
+    const a = (2 * Math.PI * i / n) - Math.PI / 2;
+    return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) };
+  });
+}
 
-  const visibleIds   = new Set([centreId, ...childIds]);
-  const visibleNodes = nodes.filter(n => visibleIds.has(n.id));
-  const visibleEdges = edges.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
+// ─── DFS layout calculator ─────────────────────────────────────────────────
+//
+// Layout philosophy:
+//   • Current (active) node: dead center at (0, 0)
+//   • Children: semicircle on the RIGHT side (arc from -100° to +100°)
+//   • Path ancestors: chain extending to the LEFT
+//     - Parent:      (-340, 0)  — full size, slightly dimmed
+//     - Grandparent: (-620, 0)  — smaller, more dimmed
+//     - Great-grand: (-860, 0)  — smallest, most dimmed (max 3 ancestors shown)
+//   • No other nodes visible — zero clutter guaranteed
+//
+// This gives a clear left-to-right narrative: where you came from ← here → where you can go
 
-  return { visibleNodes, visibleEdges };
+const ANCESTOR_POSITIONS = [
+  { x: -340, y: 0, scale: 0.88, opacity: 0.75 },  // parent (depth -1)
+  { x: -640, y: 0, scale: 0.72, opacity: 0.45 },  // grandparent (depth -2)
+  { x: -900, y: 0, scale: 0.58, opacity: 0.25 },  // great-grandparent (depth -3)
+];
+
+// Children are placed in a rightward semicircle
+// We reserve a gap at the left (toward parent) so children don't overlap with parent edge
+const CHILD_RADIUS  = 240;
+const CHILD_FROM_ANGLE = -1.75;  // ~-100 degrees
+const CHILD_TO_ANGLE   =  1.75;  // ~+100 degrees
+
+function computeDFSLayout(nodes, edges, activeParentId, pathNodeIds) {
+  // nodes/edges here are the FULL graph, not just visible layer
+  // pathNodeIds is ordered [root, ..., currentNode] — same as path state in index.js
+
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  const currentId = activeParentId;
+  if (!currentId || !nodeMap.has(currentId)) return { layoutNodes: [], layoutEdges: [], nodeOpacity: {}, nodeScale: {} };
+
+  // Determine ancestor chain from pathNodeIds
+  // pathNodeIds = [root, node1, node2, ..., currentNode]
+  const currentPathIdx = pathNodeIds.indexOf(currentId);
+  const ancestors = currentPathIdx > 0
+    ? pathNodeIds.slice(0, currentPathIdx).reverse()  // [parent, grandparent, ...]
+    : [];
+  const visibleAncestors = ancestors.slice(0, 3);  // show at most 3 ancestors
+
+  // Direct children of current node (from edges)
+  const childIds = edges
+    .filter(e => e.source === currentId)
+    .map(e => e.target)
+    .filter(id => nodeMap.has(id));
+
+  // Build visible node set
+  const visibleIds = new Set([currentId, ...visibleAncestors, ...childIds]);
+  const layoutNodes = nodes.filter(n => visibleIds.has(n.id));
+  const layoutEdges = edges.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
+
+  // Assign target positions
+  const targetPos  = {};
+  const nodeOpacity = {};
+  const nodeScale  = {};
+
+  // Current node — center
+  targetPos[currentId]   = { x: 0, y: 0 };
+  nodeOpacity[currentId] = 1.0;
+  nodeScale[currentId]   = 1.0;
+
+  // Ancestors — chain to the left
+  visibleAncestors.forEach((id, i) => {
+    const cfg = ANCESTOR_POSITIONS[i];
+    targetPos[id]   = { x: cfg.x, y: cfg.y };
+    nodeOpacity[id] = cfg.opacity;
+    nodeScale[id]   = cfg.scale;
+  });
+
+  // Children — semicircle to the right
+  if (childIds.length) {
+    const positions = ringLayout(
+      childIds.length, CHILD_RADIUS, 0, 0,
+      CHILD_FROM_ANGLE, CHILD_TO_ANGLE
+    );
+    childIds.forEach((id, i) => {
+      targetPos[id]   = positions[i];
+      nodeOpacity[id] = 1.0;
+      nodeScale[id]   = 1.0;
+    });
+  }
+
+  return { layoutNodes, layoutEdges, targetPos, nodeOpacity, nodeScale };
 }
 
 // ─── component ─────────────────────────────────────────────────────────────
@@ -68,65 +142,45 @@ export default function KnowledgeGraph({
     targetOx: 0, targetOy: 0, targetScale: 1,
     drag: false, dsx: 0, dsy: 0, dox: 0, doy: 0,
     pos: {}, targetPos: {}, spawnTime: {}, data: {},
+    nodeOpacity: {}, nodeScale: {},
     hov: null, tick: 0, stars: null, nebula: null,
     particles: [],
-    // snapshot of what this frame should render
-    layerNodes: [], layerEdges: [],
+    layoutNodes: [], layoutEdges: [],
   });
 
-  // ── recompute layout for the current layer ────────────────────────────────
-  const computeTargets = useCallback((visNodes, visEdges, pid) => {
+  // ── recompute DFS layout ──────────────────────────────────────────────────
+  const computeTargets = useCallback((allNodes, allEdges, pid, pids) => {
     const s = st.current;
-    const t = {};
+    const { layoutNodes, layoutEdges, targetPos, nodeOpacity, nodeScale } =
+      computeDFSLayout(allNodes, allEdges, pid, pids);
+
     const d = {};
-    visNodes.forEach(n => { d[n.id] = n; });
+    layoutNodes.forEach(n => { d[n.id] = n; });
 
-    const center = visNodes.find(n => n.id === pid)
-      || visNodes.find(n => n.depth === 0)
-      || visNodes[0];
-    if (!center) return;
-
-    t[center.id] = { x: 0, y: 0 };
-
-    const kids = visEdges
-      .filter(e => e.source === center.id)
-      .map(e => e.target)
-      .filter(id => d[id]);
-
-    if (kids.length) {
-      const ring = ringLayout(kids.length, 230, 0, 0);
-      kids.forEach((id, i) => { t[id] = ring[i]; });
-    }
-
-    const unplaced = visNodes.filter(n => !t[n.id]);
-    if (unplaced.length) {
-      const ring = ringLayout(unplaced.length, 420, 0, 0);
-      unplaced.forEach((n, i) => { t[n.id] = ring[i]; });
-    }
-
-    // new nodes spawn from the parent position so they fly outward
-    const parentPos = s.pos[center.id] || { x: 0, y: 0 };
-    visNodes.forEach(n => {
+    // New nodes spawn from current center so they fly outward cleanly
+    const parentPos = s.pos[pid] || { x: 0, y: 0 };
+    layoutNodes.forEach(n => {
       if (!s.pos[n.id]) {
         s.pos[n.id] = { ...parentPos };
         s.spawnTime[n.id] = s.tick;
       }
     });
 
-    s.targetPos  = t;
-    s.data       = d;
-    s.layerNodes = visNodes;
-    s.layerEdges = visEdges;
+    s.targetPos   = targetPos || {};
+    s.nodeOpacity = nodeOpacity || {};
+    s.nodeScale   = nodeScale || {};
+    s.data        = d;
+    s.layoutNodes = layoutNodes;
+    s.layoutEdges = layoutEdges;
   }, []);
 
-  // ── update on layer change ─────────────────────────────────────────────────
+  // ── update on prop change ─────────────────────────────────────────────────
   useEffect(() => {
     if (!nodes.length) return;
-    const { visibleNodes, visibleEdges } = getVisibleLayer(nodes, edges, activeParentId);
-    computeTargets(visibleNodes, visibleEdges, activeParentId);
-  }, [nodes, edges, activeParentId, computeTargets]);
+    computeTargets(nodes, edges, activeParentId, pathNodeIds);
+  }, [nodes, edges, activeParentId, pathNodeIds, computeTargets]);
 
-  // ── re-centre camera when layer changes ───────────────────────────────────
+  // ── re-centre camera when active node changes ────────────────────────────
   useEffect(() => {
     if (activeParentId) {
       st.current.targetOx    = 0;
@@ -135,7 +189,7 @@ export default function KnowledgeGraph({
     }
   }, [activeParentId]);
 
-  // ── path particles ─────────────────────────────────────────────────────────
+  // ── path particles ────────────────────────────────────────────────────────
   useEffect(() => {
     const s = st.current;
     s.particles = s.particles.filter(
@@ -163,10 +217,12 @@ export default function KnowledgeGraph({
     const ctx = c.getContext('2d');
     const W = c.width, H = c.height, s = st.current, tick = s.tick++;
 
+    // smooth camera
     s.ox    = lerp(s.ox,    s.targetOx,    0.07);
     s.oy    = lerp(s.oy,    s.targetOy,    0.07);
     s.scale = lerp(s.scale, s.targetScale, 0.07);
 
+    // smooth node positions
     Object.keys(s.targetPos).forEach(id => {
       if (!s.pos[id]) s.pos[id] = { ...s.targetPos[id] };
       s.pos[id] = lerpPos(s.pos[id], s.targetPos[id], 0.065);
@@ -176,12 +232,14 @@ export default function KnowledgeGraph({
 
     ctx.clearRect(0, 0, W, H);
 
-    // background
+    // ── background ───────────────────────────────────────────────────────────
     const bg = ctx.createRadialGradient(W * .45, H * .4, 0, W * .5, H * .5, Math.max(W, H) * .8);
-    bg.addColorStop(0, '#0a0b18'); bg.addColorStop(.5, '#060710'); bg.addColorStop(1, '#030305');
+    bg.addColorStop(0, '#0a0b18');
+    bg.addColorStop(.5, '#060710');
+    bg.addColorStop(1, '#030305');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
-    // nebula
+    // nebula blobs
     if (!s.nebula) s.nebula = [
       { wx: -180, wy: -100, r: 320, r2: 80,  g: 80,  b: 140 },
       { wx: 220,  wy: 150,  r: 260, r2: 20,  g: 0,   b: 120 },
@@ -192,7 +250,7 @@ export default function KnowledgeGraph({
       const nx = (nb.wx + s.ox) * s.scale + W / 2;
       const ny = (nb.wy + s.oy) * s.scale + H / 2;
       const nr = nb.r * s.scale;
-      const g = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+      const g  = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
       g.addColorStop(0, `rgba(${nb.r2},${nb.g},${nb.b},0.06)`);
       g.addColorStop(1, `rgba(${nb.r2},${nb.g},${nb.b},0)`);
       ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2);
@@ -216,16 +274,20 @@ export default function KnowledgeGraph({
       ctx.fill();
     });
 
-    const toS = (wx, wy) => ({ x: (wx + s.ox) * s.scale + W / 2, y: (wy + s.oy) * s.scale + H / 2 });
+    const toS = (wx, wy) => ({
+      x: (wx + s.ox) * s.scale + W / 2,
+      y: (wy + s.oy) * s.scale + H / 2,
+    });
 
+    // path edge set — for glowing path lines
     const pset = new Set();
     for (let i = 0; i < pathNodeIds.length - 1; i++) {
       pset.add(`${pathNodeIds[i]}>${pathNodeIds[i + 1]}`);
     }
     const isPE = (a, b) => pset.has(`${a}>${b}`) || pset.has(`${b}>${a}`);
 
-    // ── edges (current layer only) ─────────────────────────────────────────
-    s.layerEdges.forEach(e => {
+    // ── edges ────────────────────────────────────────────────────────────────
+    s.layoutEdges.forEach(e => {
       const sp = s.pos[e.source], tp = s.pos[e.target];
       if (!sp || !tp) return;
       const ss = toS(sp.x, sp.y), ts = toS(tp.x, tp.y);
@@ -233,11 +295,17 @@ export default function KnowledgeGraph({
       const isLocal = e.source === activeParentId || e.target === activeParentId;
       const nd = s.data[e.target];
       const nc = nd?.color || '#00f5ff';
-      const mx = (ss.x + ts.x) / 2 + (sp.y - tp.y) * .18;
-      const my = (ss.y + ts.y) / 2 + (tp.x - sp.x) * .18;
 
-      if (isPath) {
-        [[8, .08, '#ffffff'], [4, .25, nc], [2, .7, nc]].forEach(([lw, alpha, col]) => {
+      // Curve control point — gentle arc
+      const mx = (ss.x + ts.x) / 2 + (sp.y - tp.y) * .12;
+      const my = (ss.y + ts.y) / 2 + (tp.x - sp.x) * .12;
+
+      // Ancestor edges (path edges going left) — dashed dimmed style
+      const isAncestorEdge = pathNodeIds.includes(e.source) && pathNodeIds.includes(e.target);
+
+      if (isPath && isAncestorEdge) {
+        // Glowing path tube for the chain of visited nodes
+        [[8, .06, '#ffffff'], [4, .18, nc], [2, .55, nc]].forEach(([lw, alpha, col]) => {
           const pulse = alpha * (0.7 + 0.3 * Math.sin(tick * .05));
           ctx.save();
           ctx.strokeStyle = rgba(col, pulse);
@@ -247,8 +315,22 @@ export default function KnowledgeGraph({
           ctx.quadraticCurveTo(mx, my, ts.x, ts.y);
           ctx.stroke(); ctx.restore();
         });
+
+        // Arrow on path edge
+        const si = pathNodeIds.indexOf(e.source), ti = pathNodeIds.indexOf(e.target);
+        const [fx, fy, tx2, ty2] = si < ti
+          ? [ss.x, ss.y, ts.x, ts.y]
+          : [ts.x, ts.y, ss.x, ss.y];
+        const ang = Math.atan2(ty2 - fy, tx2 - fx), sz = 7 * s.scale;
+        ctx.save(); ctx.fillStyle = nc; ctx.shadowColor = nc; ctx.shadowBlur = 10;
+        ctx.translate(tx2, ty2); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(0, 0);
+        ctx.lineTo(-sz, -sz * .5); ctx.lineTo(-sz, sz * .5);
+        ctx.closePath(); ctx.fill(); ctx.restore();
+
       } else if (isLocal) {
-        [[5, .05, nc], [2, .2, nc]].forEach(([lw, alpha, col]) => {
+        // Current node → child edges
+        [[5, .04, nc], [2, .18, nc]].forEach(([lw, alpha, col]) => {
           ctx.save();
           ctx.strokeStyle = rgba(col, alpha);
           ctx.lineWidth = lw * s.scale; ctx.lineCap = 'round';
@@ -259,26 +341,14 @@ export default function KnowledgeGraph({
         });
       } else {
         ctx.save();
-        ctx.strokeStyle = 'rgba(80,90,140,0.12)';
-        ctx.lineWidth = 1 * s.scale;
+        ctx.strokeStyle = 'rgba(80,90,140,0.10)';
+        ctx.lineWidth   = 1 * s.scale;
         ctx.beginPath(); ctx.moveTo(ss.x, ss.y);
         ctx.quadraticCurveTo(mx, my, ts.x, ts.y);
         ctx.stroke(); ctx.restore();
       }
 
-      if (isPath) {
-        const si = pathNodeIds.indexOf(e.source), ti = pathNodeIds.indexOf(e.target);
-        const [fx, fy, tx2, ty2] = si < ti
-          ? [ss.x, ss.y, ts.x, ts.y]
-          : [ts.x, ts.y, ss.x, ss.y];
-        const ang = Math.atan2(ty2 - fy, tx2 - fx), sz = 8 * s.scale;
-        ctx.save(); ctx.fillStyle = nc; ctx.shadowColor = nc; ctx.shadowBlur = 10;
-        ctx.translate(tx2, ty2); ctx.rotate(ang);
-        ctx.beginPath(); ctx.moveTo(0, 0);
-        ctx.lineTo(-sz, -sz * .5); ctx.lineTo(-sz, sz * .5);
-        ctx.closePath(); ctx.fill(); ctx.restore();
-      }
-
+      // Particles on active edges
       if (isPath || isLocal) {
         s.particles
           .filter(p =>
@@ -290,7 +360,7 @@ export default function KnowledgeGraph({
             const px = (1 - pt) * (1 - pt) * ss.x + 2 * (1 - pt) * pt * mx + pt * pt * ts.x;
             const py = (1 - pt) * (1 - pt) * ss.y + 2 * (1 - pt) * pt * my + pt * pt * ts.y;
             ctx.save();
-            ctx.fillStyle  = isPath ? nc : 'rgba(255,255,255,0.6)';
+            ctx.fillStyle   = isPath ? nc : 'rgba(255,255,255,0.5)';
             ctx.shadowColor = nc; ctx.shadowBlur = 12;
             ctx.beginPath(); ctx.arc(px, py, p.size * s.scale, 0, Math.PI * 2);
             ctx.fill(); ctx.restore();
@@ -298,24 +368,34 @@ export default function KnowledgeGraph({
       }
     });
 
-    // ── nodes (current layer only) ─────────────────────────────────────────
-    s.layerNodes.forEach(node => {
+    // ── nodes ────────────────────────────────────────────────────────────────
+    s.layoutNodes.forEach(node => {
       const wp = s.pos[node.id]; if (!wp) return;
       const { x, y } = toS(wp.x, wp.y);
-      const isRoot = node.id === activeParentId;
-      const isSel  = node.id === selectedNodeId;
-      const isHov  = s.hov === node.id;
-      const isPath = pathNodeIds.includes(node.id);
-      const col    = node.color || CAT_NEON[node.category] || '#00f5ff';
-      const spawnAge = s.spawnTime[node.id] !== undefined ? tick - s.spawnTime[node.id] : 999;
-      const spawnSc  = Math.min(1, spawnAge / 45);
+
+      const isRoot    = node.id === activeParentId;
+      const isSel     = node.id === selectedNodeId;
+      const isHov     = s.hov === node.id;
+      const isPath    = pathNodeIds.includes(node.id);
+      const isAnc     = isPath && node.id !== activeParentId;  // ancestor node
+
+      const col       = node.color || CAT_NEON[node.category] || '#00f5ff';
+      const spawnAge  = s.spawnTime[node.id] !== undefined ? tick - s.spawnTime[node.id] : 999;
+      const spawnSc   = Math.min(1, spawnAge / 45);
+
+      // Per-node scale and opacity from layout (ancestors are smaller/dimmer)
+      const layoutSc  = s.nodeScale[node.id]   ?? 1.0;
+      const layoutOp  = s.nodeOpacity[node.id] ?? 1.0;
+
       const { r, g, b } = hexRgb(col);
 
-      const cardW = (isRoot ? 160 : 130) * s.scale * spawnSc;
-      const cardH = (isRoot ? 90  : 72)  * s.scale * spawnSc;
+      const cardW = (isRoot ? 160 : 130) * s.scale * spawnSc * layoutSc;
+      const cardH = (isRoot ? 90  : 72)  * s.scale * spawnSc * layoutSc;
       if (cardW < 4) return;
-      const cr = 10 * s.scale;
+      const cr = 10 * s.scale * layoutSc;
       const cx = x - cardW / 2, cy = y - cardH / 2;
+
+      ctx.globalAlpha = layoutOp;
 
       // glow halo
       const glowR = Math.max(cardW, cardH) * (isRoot ? 1.8 : isHov ? 1.5 : 1.2);
@@ -339,6 +419,16 @@ export default function KnowledgeGraph({
         });
       }
 
+      // ancestor indicator — small breadcrumb dot above the card
+      if (isAnc) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, cy - 10 * s.scale * layoutSc, 3 * s.scale * layoutSc, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},0.6)`;
+        ctx.shadowColor = col; ctx.shadowBlur = 8;
+        ctx.fill(); ctx.restore();
+      }
+
       // card body
       const roundRect = () => {
         ctx.beginPath();
@@ -358,9 +448,10 @@ export default function KnowledgeGraph({
       bodyGrad.addColorStop(0, 'rgba(14,15,25,0.95)');
       bodyGrad.addColorStop(1, 'rgba(8,9,16,0.98)');
       ctx.fillStyle = bodyGrad; ctx.fill();
-      const borderAlpha = isRoot ? .8 : isSel ? .7 : isHov ? .55 : isPath ? .35 : .15;
+
+      const borderAlpha = isRoot ? .8 : isSel ? .7 : isHov ? .55 : isPath ? .30 : .15;
       ctx.strokeStyle = `rgba(${r},${g},${b},${borderAlpha})`;
-      ctx.lineWidth   = (isRoot ? 2.2 : isSel || isHov ? 1.8 : 1) * s.scale;
+      ctx.lineWidth   = (isRoot ? 2.2 : isSel || isHov ? 1.8 : isAnc ? 1.0 : 1) * s.scale * layoutSc;
       if (isRoot || isSel || isHov) { ctx.shadowColor = col; ctx.shadowBlur = isRoot ? 18 : 12; }
       ctx.stroke(); ctx.restore();
 
@@ -369,55 +460,80 @@ export default function KnowledgeGraph({
       ctx.beginPath();
       ctx.moveTo(cx + cr, cy); ctx.lineTo(cx + cardW - cr, cy);
       ctx.arcTo(cx + cardW, cy, cx + cardW, cy + cr, cr);
-      ctx.lineTo(cx + cardW, cy + Math.min(cardH * .35, 20 * s.scale));
-      ctx.lineTo(cx, cy + Math.min(cardH * .35, 20 * s.scale));
+      ctx.lineTo(cx + cardW, cy + Math.min(cardH * .35, 20 * s.scale * layoutSc));
+      ctx.lineTo(cx, cy + Math.min(cardH * .35, 20 * s.scale * layoutSc));
       ctx.lineTo(cx, cy + cr);
       ctx.arcTo(cx, cy, cx + cr, cy, cr);
       ctx.closePath();
-      ctx.fillStyle = `rgba(${r},${g},${b},0.06)`; ctx.fill(); ctx.restore();
+      ctx.fillStyle = `rgba(${r},${g},${b},0.05)`; ctx.fill(); ctx.restore();
 
       // icon
       if (node.icon) {
-        const iconSz = Math.round((isRoot ? 20 : 16) * s.scale);
+        const iconSz = Math.round((isRoot ? 20 : 16) * s.scale * layoutSc);
         ctx.font = `${iconSz}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.globalAlpha = 0.9;
-        ctx.fillText(node.icon, x, cy + 18 * s.scale);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = 0.9 * layoutOp;
+        ctx.fillText(node.icon, x, cy + 18 * s.scale * layoutSc);
+        ctx.globalAlpha = layoutOp;
       }
 
       // title
-      const tfs = Math.max(8, Math.min(13, (isRoot ? 13 : 10.5) * s.scale));
+      const tfs = Math.max(7, Math.min(13, (isRoot ? 13 : 10.5) * s.scale * layoutSc));
       ctx.font  = `800 ${tfs}px 'Syne',sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      const name = node.name.length > 18 ? node.name.slice(0, 16) + '…' : node.name;
-      ctx.fillStyle = isRoot ? col : isPath ? `rgba(${r},${g},${b},0.9)` : isSel || isHov ? '#d0d8f0' : '#8090b0';
+      // Dynamic truncation — measure actual pixel width and trim until it fits
+      let name = node.name;
+      ctx.font = `800 ${tfs}px 'Syne',sans-serif`;  // set font before measuring
+      const maxNameW = cardW * 0.88;
+      if (ctx.measureText(name).width > maxNameW) {
+        while (name.length > 1 && ctx.measureText(name + '…').width > maxNameW) {
+          name = name.slice(0, -1);
+        }
+        name = name.trimEnd() + '…';
+      }
+      // Ancestors show their name in a muted color to signal "past"
+      ctx.fillStyle = isRoot
+        ? col
+        : isAnc
+          ? `rgba(${r},${g},${b},0.6)`
+          : isPath
+            ? `rgba(${r},${g},${b},0.9)`
+            : isSel || isHov
+              ? '#d0d8f0'
+              : '#8090b0';
       if (isRoot) { ctx.shadowColor = col; ctx.shadowBlur = 6; }
-      const titleY = cy + (node.icon ? 32 : 14) * s.scale;
+      const titleY = cy + (node.icon ? 32 : 14) * s.scale * layoutSc;
       ctx.fillText(name, x, titleY); ctx.shadowBlur = 0;
 
-      // short description
-      if (node.short_description && (isRoot || isHov || isSel || cardW > 100)) {
-        const dfs = Math.max(6, Math.min(9, (isRoot ? 8.5 : 7.5) * s.scale));
+      // short description — only on root, hovered, or selected
+      if (node.short_description && (isRoot || isHov || isSel) && cardW > 80) {
+        const dfs = Math.max(6, Math.min(9, (isRoot ? 8.5 : 7.5) * s.scale * layoutSc));
         ctx.font  = `700 ${dfs}px 'Outfit',sans-serif`;
-        ctx.fillStyle = `rgba(${r},${g},${b},0.4)`;
-        const desc  = node.short_description.length > 30
-          ? node.short_description.slice(0, 28) + '…'
-          : node.short_description;
-        const descY = titleY + tfs + 4 * s.scale;
-        if (descY + dfs < cy + cardH - 3 * s.scale) ctx.fillText(desc, x, descY);
+        ctx.fillStyle = `rgba(${r},${g},${b},${isAnc ? 0.25 : 0.4})`;
+        let desc = node.short_description;
+        const maxDescW = cardW * 0.88;
+        if (ctx.measureText(desc).width > maxDescW) {
+          while (desc.length > 1 && ctx.measureText(desc + '…').width > maxDescW) {
+            desc = desc.slice(0, -1);
+          }
+          desc = desc.trimEnd() + '…';
+        }
+        const descY = titleY + tfs + 4 * s.scale * layoutSc;
+        if (descY + dfs < cy + cardH - 3 * s.scale * layoutSc) ctx.fillText(desc, x, descY);
       }
 
-      // tags
-      if ((isRoot || isHov || isSel) && node.tags?.length) {
-        const kfs = Math.max(7, 8 * s.scale);
+      // tags — only on root and hovered
+      if ((isRoot || isHov || isSel) && !isAnc && node.tags?.length) {
+        const kfs = Math.max(7, 8 * s.scale * layoutSc);
         ctx.font  = `700 ${kfs}px 'Space Mono',monospace`;
         const kwStr = node.tags.slice(0, 2).map(t => `#${t}`).join('  ');
         ctx.fillStyle    = `rgba(${r},${g},${b},0.45)`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText(kwStr, x, cy + cardH + 5 * s.scale);
+        ctx.fillText(kwStr, x, cy + cardH + 5 * s.scale * layoutSc);
       }
+
+      ctx.globalAlpha = 1;
     });
 
     raf.current = requestAnimationFrame(draw);
@@ -441,19 +557,20 @@ export default function KnowledgeGraph({
     return () => ro.disconnect();
   }, []);
 
-  // hit test — only against current layer nodes
+  // ── hit test — against layout nodes only ─────────────────────────────────
   const hit = useCallback((cx, cy) => {
     const c = cvs.current; if (!c) return null;
     const rect = c.getBoundingClientRect();
     const mx = cx - rect.left, my = cy - rect.top;
-    const s = st.current, W = c.width, H = c.height;
-    for (const node of [...st.current.layerNodes].reverse()) {
+    const s  = st.current, W = c.width, H = c.height;
+    for (const node of [...s.layoutNodes].reverse()) {
       const wp = s.pos[node.id]; if (!wp) continue;
       const sx = (wp.x + s.ox) * s.scale + W / 2;
       const sy = (wp.y + s.oy) * s.scale + H / 2;
       const isRoot = node.id === activeParentId;
-      const cw = (isRoot ? 160 : 130) * s.scale * 0.5;
-      const ch = (isRoot ? 90  : 72)  * s.scale * 0.5;
+      const ls   = s.nodeScale[node.id] ?? 1.0;
+      const cw   = (isRoot ? 160 : 130) * s.scale * ls * 0.5;
+      const ch   = (isRoot ? 90  : 72)  * s.scale * ls * 0.5;
       if (mx >= sx - cw && mx <= sx + cw && my >= sy - ch && my <= sy + ch) return node;
     }
     return null;
