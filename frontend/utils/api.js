@@ -14,6 +14,22 @@ const WP_REST    = 'https://en.wikipedia.org/api/rest_v1';
 const WP_ACTION  = 'https://en.wikipedia.org/w/api.php';
 const WD_ACTION  = 'https://www.wikidata.org/w/api.php';
 
+// ─── rate-limit-aware fetch ───────────────────────────────────────────────
+// Wikipedia returns 429 with a Retry-After header when rate limited.
+// We wait the specified time and retry once before giving up.
+async function fetchWithRetry(url, options = {}, retries = 2) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429) return res;
+    // Rate limited — read Retry-After header (seconds) or default to 5s
+    const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
+    const waitMs = Math.min(retryAfter * 1000, 10000); // cap at 10s
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  // Final attempt — return whatever we get
+  return fetch(url, options);
+}
+
 // ─── app category system ───────────────────────────────────────────────────
 const CAT_RULES = [
   { cat: 'mathematics', re: /math|calculus|algebra|geometry|statistics|probability|theorem|number|topology|logic/i },
@@ -46,7 +62,7 @@ const toSlug = (t) => encodeURIComponent(t.trim().replace(/ /g, '_'));
 // ══════════════════════════════════════════════════════════════════════════
 
 async function wpSummary(title) {
-  const res = await fetch(`${WP_REST}/page/summary/${toSlug(title)}`, {
+  const res = await fetchWithRetry(`${WP_REST}/page/summary/${toSlug(title)}`, {
     headers: { 'Api-User-Agent': 'RabbitHoleExplorer/1.0' },
   });
   if (!res.ok) throw new Error(`No Wikipedia page for "${title}"`);
@@ -58,7 +74,7 @@ async function wpSearch(query) {
     action: 'query', list: 'search', srsearch: query,
     srnamespace: 0, srlimit: 1, format: 'json', origin: '*',
   });
-  const res  = await fetch(`${WP_ACTION}?${params}`);
+  const res  = await fetchWithRetry(`${WP_ACTION}?${params}`);
   const data = await res.json();
   const hits = data?.query?.search;
   if (!hits?.length) throw new Error(`No results for "${query}"`);
@@ -70,7 +86,7 @@ async function wpSearchMulti(query, limit = 8) {
     action: 'query', list: 'search', srsearch: query,
     srnamespace: 0, srlimit: limit, format: 'json', origin: '*',
   });
-  const res  = await fetch(`${WP_ACTION}?${params}`);
+  const res  = await fetchWithRetry(`${WP_ACTION}?${params}`);
   const data = await res.json();
   return (data?.query?.search || []).map(r => r.title);
 }
@@ -80,7 +96,7 @@ async function wpLinks(title, limit = 40) {
     action: 'query', titles: title, prop: 'links',
     pllimit: limit, plnamespace: 0, format: 'json', origin: '*',
   });
-  const res  = await fetch(`${WP_ACTION}?${params}`);
+  const res  = await fetchWithRetry(`${WP_ACTION}?${params}`);
   const data = await res.json();
   const pages = Object.values(data?.query?.pages || {});
   if (!pages.length) return [];
@@ -148,7 +164,7 @@ async function wdGetEntity(wpTitle) {
       format:   'json',
       origin:   '*',
     });
-    const res  = await fetch(`${WD_ACTION}?${params}`);
+    const res  = await fetchWithRetry(`${WD_ACTION}?${params}`);
     const data = await res.json();
     const entities = data?.entities || {};
     // Find the entity that isn't "-1" (missing)
@@ -174,7 +190,7 @@ async function wdQidToWpTitle(qid) {
       format:   'json',
       origin:   '*',
     });
-    const res  = await fetch(`${WD_ACTION}?${params}`);
+    const res  = await fetchWithRetry(`${WD_ACTION}?${params}`);
     const data = await res.json();
     return data?.entities?.[qid]?.sitelinks?.enwiki?.title || null;
   } catch {
@@ -196,7 +212,7 @@ async function wdGetLabel(qid) {
       format:   'json',
       origin:   '*',
     });
-    const res  = await fetch(`${WD_ACTION}?${params}`);
+    const res  = await fetchWithRetry(`${WD_ACTION}?${params}`);
     const data = await res.json();
     return data?.entities?.[qid]?.labels?.en?.value || null;
   } catch {
@@ -234,7 +250,7 @@ async function wdQidsBatchToWpTitles(qids) {
       format:     'json',
       origin:     '*',
     });
-    const res  = await fetch(`${WD_ACTION}?${params}`);
+    const res  = await fetchWithRetry(`${WD_ACTION}?${params}`);
     const data = await res.json();
     const titles = [];
     for (const qid of unique) {
