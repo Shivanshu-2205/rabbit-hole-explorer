@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+# The frontend package.json has "rabbit-hole-explorer": "file:.."
+# so npm needs the root package.json one level up to resolve that dep.
+# We copy it here at build time; the actual source is volume-mounted at runtime.
+
+WORKDIR /app
+
+# Copy root package.json so npm can resolve the "file:.." local dependency
+COPY package.json ./
+
+WORKDIR /app/frontend
+
+# Install all frontend dependencies
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm install
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
