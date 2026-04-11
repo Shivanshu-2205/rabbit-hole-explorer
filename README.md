@@ -540,3 +540,5 @@ MIT
 ---
 
 *Built with curiosity. Powered by Wikipedia, Wikidata, and the belief that knowledge should be explorable, not just searchable.*
+
+BY Shivanshu and Garv
